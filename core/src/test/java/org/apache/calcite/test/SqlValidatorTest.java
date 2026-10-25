@@ -6266,6 +6266,20 @@ public class SqlValidatorTest extends SqlValidatorTestCase {
         .ok();
   }
 
+  /** Tests that a common column has the same widened type with and without
+   * identifier expansion enabled. */
+  @Test void testJoinUsingMixedNumericCommonColumn() {
+    final String from = " from (values (cast(2147483647 as integer))) as l(k)"
+        + " join (values (cast(2147483647 as bigint))) as r(k) using (k)";
+    sql("select k" + from).columnType("BIGINT NOT NULL");
+    sql("select k" + from)
+        .withValidatorIdentifierExpansion(false)
+        .columnType("BIGINT NOT NULL");
+    sql("select k + 1" + from)
+        .withValidatorIdentifierExpansion(true)
+        .columnType("BIGINT NOT NULL");
+  }
+
   /** Tests that an unqualified common column in ORDER BY is valid for
    * JOINs with USING and for NATURAL JOINs. */
   @Test void testOrderByUnqualifiedCommonColumn() {

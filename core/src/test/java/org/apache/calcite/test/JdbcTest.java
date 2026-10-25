@@ -2955,6 +2955,62 @@ public class JdbcTest {
         .returns("desc=SameName\n");
   }
 
+  /** Regression test for
+   * <a href="https://issues.apache.org/jira/browse/CALCITE-7880">[CALCITE-7880]
+   * Arithmetic on an unqualified USING column can overflow its common type</a>. */
+  @ParameterizedTest
+  @MethodSource("joinUsingMixedNumericTypes")
+  void testJoinUsingMixedNumericCommonColumn(String join, String leftType,
+      String rightType) {
+    final String from = " from (values (cast(2147483647 as " + leftType + "))) as l(k) "
+        + join + " (values (cast(2147483647 as " + rightType + "))) as r(k)"
+        + (join.startsWith("natural") ? "" : " using (k)");
+    final String nullability = join.contains("full") ? "" : " NOT NULL";
+    CalciteAssert.that()
+        .query("select k + 1 as x" + from)
+        .returns("X=2147483648\n")
+        .typeIs("[X BIGINT" + nullability + "]");
+    CalciteAssert.that()
+        .query("select *" + from)
+        .typeIs("[K BIGINT" + nullability + "]");
+    // A qualified reference still denotes the original input column.
+    CalciteAssert.that()
+        .query("select l.k" + from)
+        .typeIs("[K " + leftType.toUpperCase(Locale.ROOT)
+            + (join.contains("right") || join.contains("full") ? "" : " NOT NULL")
+            + "]");
+  }
+
+  private static Stream<Arguments> joinUsingMixedNumericTypes() {
+    return Stream.of("join", "left join", "right join", "full join",
+        "natural join", "natural left join", "natural right join", "natural full join")
+        .flatMap(
+            join -> Stream.of(arguments(join, "integer", "bigint"),
+            arguments(join, "bigint", "integer")));
+  }
+
+  @ParameterizedTest
+  @MethodSource("joinUsingMixedNumericNulls")
+  void testJoinUsingMixedNumericCommonColumnWithNulls(String join, String leftType,
+      String rightType, String[] expected) {
+    final String sql = "select k + 1 as x from (values "
+        + "(cast(2147483647 as " + leftType + ")), (2147483646), (null)) as l(k) "
+        + join + " (values (cast(2147483647 as " + rightType
+        + ")), (2147483645), (null)) as r(k) using (k)";
+    CalciteAssert.that()
+        .query(sql)
+        .returnsUnordered(expected)
+        .typeIs("[X BIGINT]");
+  }
+
+  private static Stream<Arguments> joinUsingMixedNumericNulls() {
+    return Stream.of(
+        arguments("left join", "integer", "bigint",
+            new String[] {"X=2147483648", "X=2147483647", "X=null"}),
+        arguments("right join", "bigint", "integer",
+            new String[] {"X=2147483648", "X=2147483646", "X=null"}));
+  }
+
   @Test void testValuesMinus() {
     CalciteAssert.that()
         .query("values (-2-1)")
